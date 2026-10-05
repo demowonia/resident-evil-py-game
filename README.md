@@ -1,0 +1,1 @@
+this is a res-evil game with pygame , readme will be updated soon
