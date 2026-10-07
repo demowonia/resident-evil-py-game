@@ -114,7 +114,7 @@ class Mob:
         self.g = game
         self.wave = wave
         self.passive = passive              # title-screen mob: walks around, can't be hurt, doesn't shoot
-        self.max_hp = 90 + 18 * (wave - 1)
+        self.max_hp = int((90 + 18 * (wave - 1)) * enemies.ENEMY_HP_MULT)
         self.hp = self.max_hp
         self.disabled = set()
         self.pos = V2(random.uniform(500, 900), 600)
@@ -138,7 +138,7 @@ class Mob:
         self.zoom = 1.0
         self.alpha = 255
         self.P = V2(self.pos)
-        self.speed_base = 52 + 6 * (wave - 1)
+        self.speed_base = (52 + 6 * (wave - 1)) * enemies.ENEMY_SPEED_MULT
         self.ref = game.idle[frozenset()]
         self.pick_target()
 
@@ -171,15 +171,18 @@ class Mob:
             if limb in self.disabled:
                 continue
             d = (V2(p) - self.to_screen((ox, oy))).length()
-            if d < max(44, r * S0 * self.zoom * 2.1) and (best is None or d < best[0]):
+            if d < max(34, r * S0 * self.zoom * 1.7) and (best is None or d < best[0]):
                 best = (d, limb)
         if best:
             return "orb", best[1]
         q = self.to_sprite(p)
         cx, cy, rx, ry = sprites.HEAD_ELLIPSE
+        rx, ry = rx * enemies.HITBOX_SCALE, ry * enemies.HITBOX_SCALE
         if ((q.x - cx) / rx) ** 2 + ((q.y - cy) / ry) ** 2 <= 1:
             return "head", None
         x, y, w, h = sprites.BODY_RECT
+        k = enemies.HITBOX_SCALE
+        x, y, w, h = x + w * (1 - k) / 2, y + h * (1 - k) / 2, w * k, h * k
         if x <= q.x <= x + w and y <= q.y <= y + h:
             return "body", None
         return None
@@ -549,7 +552,7 @@ class Game:
             self.auto_reload_t = 0.5
 
         for s in sorted(self.spores, key=lambda s: -s.radius):                   # 1) spores threaten you first
-            if not s.dead and (pos - s.pos).length() <= s.radius * 1.3 + 28:
+            if not s.dead and (pos - s.pos).length() <= s.radius * 1.1 + 18:
                 self.pop_spore(s)
                 return
         for e in sorted(self.enemies, key=lambda e: -e.pos.y):                    # 2) enemies, nearest first
@@ -574,6 +577,7 @@ class Game:
         self.particles.ring(pos, (255, 255, 255), 34, 0.18)
         self.sfx.play(info["sfx"])
         self.shake = max(self.shake, 2 if kind == "body" else 6)
+        e.hit_pos = V2(pos)
         e.on_hit(kind)
         if e.hp <= 0 and e.state == "alive":
             self.kill_enemy(e)
@@ -734,6 +738,7 @@ class Game:
             pygame.draw.circle(s, (10, 12, 10, int(200 * a)), (11, 11), 5)
             pygame.draw.circle(s, (160, 165, 140, int(120 * a)), (11, 11), 8, 2)
             w.blit(s, (pos.x - 11, pos.y - 11))
+        self.particles.draw_stains(w)                                              # blood on the floor
         for e in sorted(self.enemies, key=lambda e: e.pos.y):
             e.draw(w)
         for s in self.spores:
@@ -953,7 +958,7 @@ class Game:
             return
         pos = self.cross
         over_mob = self.state != "over" and any(e.hit_test(pos) for e in self.enemies)
-        over_spore = any((pos - s.pos).length() <= s.radius * 1.3 + 28 for s in self.spores)
+        over_spore = any((pos - s.pos).length() <= s.radius * 1.1 + 18 for s in self.spores)
         col = (255, 210, 90) if over_spore else ((130, 255, 150) if over_mob else (240, 255, 240))
         tracking = inp["tracking"] or inp["mode"] != "hand"
         size = 130

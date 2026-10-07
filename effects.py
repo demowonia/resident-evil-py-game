@@ -324,8 +324,10 @@ class Particles:
         self.bank = leaf_bank
         self.glow = radial_add(30, (255, 190, 80), 2.0, 1.0)
         self.glow_green = radial_add(30, (120, 255, 110), 2.0, 1.0)
+        self.stains = []                       # blood puddles on the floor: [x, y, size, life]
+        self._stain_cache = {}
 
-    # kind: spark | dot | leaf | smoke | ring
+    # kind: spark | dot | leaf | smoke | ring | blood
     def sparks(self, pos, n, colors=((255, 220, 120), (255, 150, 40)), speed=(140, 420), life=(0.25, 0.6),
                gravity=600, spread=math.tau, direction=0.0):
         for _ in range(n):
@@ -352,13 +354,53 @@ class Particles:
             self.items.append(["smoke", pos[0], pos[1], math.cos(a) * v, math.sin(a) * v - 30, lf, lf,
                                (color, random.uniform(*size)), -20, 0])
 
+    BLOOD_COLORS = ((200, 12, 24), (160, 8, 18), (232, 38, 40), (120, 6, 14))
+
+    def blood(self, pos, n, direction=-math.pi / 2, spread=math.pi, speed=(120, 460), size=(2, 5), life=(0.5, 1.1)):
+        """Heavy red droplets that arc through the air and splat onto the floor (leaving a stain)."""
+        for _ in range(n):
+            a = direction + random.uniform(-spread / 2, spread / 2)
+            v = random.uniform(*speed)
+            lf = random.uniform(*life)
+            self.items.append(["blood", pos[0], pos[1], math.cos(a) * v, math.sin(a) * v, lf, lf,
+                               (random.choice(self.BLOOD_COLORS), random.uniform(*size)), 950,
+                               random.uniform(604, 666)])
+
+    def add_stain(self, x, y, size):
+        if len(self.stains) >= 70:
+            self.stains.pop(0)
+        self.stains.append([x, y, random.uniform(5, 11) * (0.6 + size / 6), 9.0])
+
+    def draw_stains(self, surf):
+        for x, y, r, life in self.stains:
+            w, h = max(4, int(r * 2.4)), max(2, int(r * 0.8))
+            img = self._stain_cache.get((w, h))
+            if img is None:
+                img = self._stain_cache[(w, h)] = ellipse_alpha(w, h, (105, 6, 14), 0.9, 235)
+            img.set_alpha(int(255 * min(1.0, life / 2.0)))
+            surf.blit(img, (x - w / 2, y - h / 2))
+
     def ring(self, pos, color=(255, 230, 150), r1=60, life=0.3):
         self.items.append(["ring", pos[0], pos[1], 0, 0, life, life, (color, r1), 0, 0])
 
     def update(self, dt):
         out = []
+        for st in self.stains:
+            st[3] -= dt
+        self.stains = [st for st in self.stains if st[3] > 0]
         for p in self.items:
             p[5] -= dt
+            if p[0] == "blood":
+                p[1] += p[3] * dt
+                p[2] += p[4] * dt
+                p[4] += p[8] * dt
+                p[3] *= (1 - min(1, 0.9 * dt))
+                if p[4] > 0 and p[2] >= p[9]:                  # landed on the floor
+                    self.add_stain(p[1], p[9], p[7][1])
+                    continue
+                if p[5] > 0:
+                    out.append(p)
+                continue
             if p[5] <= 0:
                 continue
             p[1] += p[3] * dt
@@ -384,6 +426,10 @@ class Particles:
                 if k < 0.4:
                     img.set_alpha(int(255 * k / 0.4))
                 surf.blit(img, img.get_rect(center=(x, y)))
+            elif kind == "blood":
+                color, size = data
+                pygame.draw.line(surf, color, (x, y), (x - vx * 0.022, y - vy * 0.022), max(1, int(size * 0.7)))
+                pygame.draw.circle(surf, color, (int(x), int(y)), max(1, int(size * (0.55 + 0.45 * k))))
             elif kind == "smoke":
                 color, size = data
                 r = int(size * (1.6 - k))
